@@ -72,3 +72,18 @@ func TestRunnerStopRequest(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRunnerError(t *testing.T) {
+	r := New(EngineCallback)
+	r.Register("sloth 1", NewSloth("sloth 1", 10*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 2", NewSloth("sloth 2", 5*time.Millisecond, 1*time.Millisecond, errors.New("start failed"), nil))
+	go func() {
+		if err := r.Start(nil); err == nil {
+			t.Fatal("Start error test failed")
+		}
+	}()
+	time.Sleep(15 * time.Millisecond)
+	if err := r.Stop(nil); !errors.Is(err, ErrAlreadyStopped) {
+		t.Fatal(err)
+	}
+}
