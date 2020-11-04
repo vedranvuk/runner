@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 )
 
 var (
@@ -15,14 +16,15 @@ var (
 	ErrNilEngine = errors.New("runner: engine is nil")
 	// ErrRegisterOnRunning is returned by Register if Runner is running.
 	ErrRegisterOnRunning = errors.New("runner: cannot register engine, runner not idle")
+
+	// ErrIdle is returned when Stop was called and Runner was already idle.
+	ErrIdle = errors.New("runner: cannot stop, already stopped")
 	// ErrRunning is returned when Start was called and Runner was not idle.
 	ErrRunning = errors.New("runner: cannot start, not idle")
-	// ErrAlreadyStopped is returned when Stop was called and Runner was already idle.
-	ErrAlreadyStopped = errors.New("runner: already stopped")
-	// ErrShuttingDown is returned when Stop is called and Runner is shutting down.
-	ErrShuttingDown = errors.New("runner: cannot stop, shutting down")
 	// ErrFailing is returned when Stop is called and Runner is shutting down due to an Engine Start error.
 	ErrFailing = errors.New("runner: cannot stop, erroring")
+	// ErrShuttingDown is returned when Stop is called and Runner is shutting down.
+	ErrShuttingDown = errors.New("runner: cannot stop, already stopping")
 )
 
 // Engine defines an interface to a type that can be Started and Stopped by
@@ -44,17 +46,18 @@ type Engine interface {
 
 // Runner runs multiple Stack Engines simultaneously.
 type Runner struct {
-	cb        DoneCallback    // cb is the optional callback function.
-	startdone chan error      // startdone is signal to Start to return.
-	stopdone  chan error      // startdone is signal to Stop to return.
-	startctx  context.Context // startctx is the Start context.
-	stopctx   context.Context // stopctx is the Stop context.
-	mu        sync.Mutex      // mu protects the following fields.
-	engines   map[string]*eng // engines is a map of registered Engines.
-	state     State           // state is the current Runner state.
-	count     int             // count is the registered engine count.
-	running   int             // running is the count of running Engines.
-	err       error           // err stores an indicator error.
+	cb          DoneCallback    // cb is the optional callback function.
+	startdone   chan error      // startdone is signal to Start to return.
+	stopdone    chan error      // startdone is signal to Stop to return.
+	failtimeout time.Duration   // Fail timeout duration calculated from startctx.
+	startctx    context.Context // startctx is the Start context.
+	stopctx     context.Context // stopctx is the Stop context.
+	mu          sync.Mutex      // mu protects the following fields.
+	engines     map[string]*eng // engines is a map of registered Engines.
+	state       State           // state is the current Runner state.
+	count       int             // count is the registered engine count.
+	running     int             // running is the count of running Engines.
+	err         error           // err stores an indicator error.
 }
 
 // eng holds engine states and definitions.
@@ -140,6 +143,13 @@ func (r *Runner) Start(ctx context.Context) error {
 		return ErrRunning
 	}
 	r.startctx = ctx
+	// Calculate a timeout duration from start context.
+	// Used to create a fail context.
+	if ctx != nil {
+		if deadline, ok := ctx.Deadline(); ok {
+			r.failtimeout = time.Until(deadline)
+		}
+	}
 	r.err = nil
 	r.state = StateRunning
 	for enginename, enginedef := range r.engines {
@@ -162,7 +172,7 @@ func (r *Runner) Stop(ctx context.Context) error {
 		r.mu.Unlock()
 		switch r.state {
 		case StateIdle:
-			return ErrAlreadyStopped
+			return ErrIdle
 		case StateStoppingFail:
 			return ErrShuttingDown
 		case StateStoppingRequest:
@@ -189,8 +199,8 @@ func (r *Runner) startEngine(name string, d *eng) {
 		return
 	}
 	e := d.engine
-	r.running++
 	d.running = true
+	r.running++
 	var ctx context.Context = r.startctx
 	r.mu.Unlock()
 	err := e.Start(ctx)
@@ -207,8 +217,15 @@ func (r *Runner) stopEngine(name string, d *eng) {
 	}
 	e := d.engine
 	var ctx context.Context
-	if r.state == StateStoppingRequest {
+	switch r.state {
+	case StateStoppingRequest:
 		ctx = r.stopctx
+	case StateStoppingFail:
+		if r.startctx != nil && r.failtimeout != 0 {
+			failctx, failcancel := context.WithTimeout(r.startctx, r.failtimeout)
+			defer failcancel()
+			ctx = failctx
+		}
 	}
 	r.mu.Unlock()
 	r.routeError(e.Stop(ctx), true)
@@ -220,26 +237,27 @@ func (r *Runner) stopEngine(name string, d *eng) {
 // from an Engine Stop method, it records the error to later be returned by
 // Runner Stop method.
 func (r *Runner) routeError(err error, lock bool) {
+	if err == nil {
+		return
+	}
 	if lock {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 	}
-	if err != nil {
-		switch r.state {
-		case StateRunning:
-			r.state = StateStoppingFail
-			for enginename, enginedef := range r.engines {
-				if enginedef.running {
-					go r.stopEngine(enginename, enginedef)
-				}
+	switch r.state {
+	case StateRunning:
+		r.state = StateStoppingFail
+		for enginename, enginedef := range r.engines {
+			if enginedef.running {
+				go r.stopEngine(enginename, enginedef)
 			}
-			if r.err == nil {
-				r.err = err
-			}
-		case StateStoppingRequest:
-			if r.err == nil {
-				r.err = err
-			}
+		}
+		if r.err == nil {
+			r.err = err
+		}
+	case StateStoppingRequest:
+		if r.err == nil {
+			r.err = err
 		}
 	}
 }

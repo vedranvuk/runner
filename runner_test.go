@@ -45,7 +45,7 @@ func TestRunnerCompletion(t *testing.T) {
 		}
 	}()
 	time.Sleep(15 * time.Millisecond)
-	if err := r.Stop(nil); !errors.Is(err, ErrAlreadyStopped) {
+	if err := r.Stop(nil); !errors.Is(err, ErrIdle) {
 		t.Fatal(err)
 	}
 }
@@ -83,7 +83,7 @@ func TestRunnerError(t *testing.T) {
 		}
 	}()
 	time.Sleep(15 * time.Millisecond)
-	if err := r.Stop(nil); !errors.Is(err, ErrAlreadyStopped) {
+	if err := r.Stop(nil); !errors.Is(err, ErrIdle) {
 		t.Fatal(err)
 	}
 }
