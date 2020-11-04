@@ -47,12 +47,18 @@ func (s *Sloth) Start(ctx context.Context) error {
 	s.mu.Lock()
 	s.running = true
 	s.mu.Unlock()
+	var stoptimer *time.Timer
 	var stopchan <-chan time.Time
 	for {
 		select {
 		case <-time.After(s.startduration):
 			s.mu.Lock()
 			s.running = false
+			if stoptimer != nil {
+				if !stoptimer.Stop() {
+					<-stoptimer.C
+				}
+			}
 			s.mu.Unlock()
 			return s.starterror
 		case <-stopchan:
@@ -62,7 +68,7 @@ func (s *Sloth) Start(ctx context.Context) error {
 			s.stopdone <- struct{}{}
 			return nil
 		case <-s.stopreq:
-			stoptimer := time.NewTimer(s.stopduration)
+			stoptimer = time.NewTimer(s.stopduration)
 			stopchan = stoptimer.C
 		}
 	}

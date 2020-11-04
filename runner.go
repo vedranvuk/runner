@@ -158,7 +158,7 @@ func (r *Runner) Start(startctx, stopctx context.Context) error {
 	r.state = StateRunning
 	for enginename, enginedef := range r.engines {
 		if !enginedef.running {
-			go r.runEngine(enginename, enginedef)
+			go r.startEngine(enginename, enginedef)
 		}
 	}
 	r.mu.Unlock()
@@ -193,8 +193,9 @@ func (r *Runner) Stop() error {
 	return <-r.stopdone
 }
 
-// runEngine help.
-func (r *Runner) runEngine(name string, d *eng) {
+// startEngine starts an engine in a goroutine and calls onEngineDone when it
+// finishes. It safely modifies all states in the process.
+func (r *Runner) startEngine(name string, d *eng) {
 	r.mu.Lock()
 	if r.state != StateRunning {
 		r.mu.Unlock()
@@ -212,7 +213,8 @@ func (r *Runner) runEngine(name string, d *eng) {
 	r.onEngineDone(name, d, err)
 }
 
-// stopEngine help.
+// stopEngine stops an engine in a goroutine and calls onEngineDone when it
+// finishes. It safely modifies all states in the process.
 func (r *Runner) stopEngine(name string, d *eng) {
 	r.mu.Lock()
 	if !d.running {
@@ -225,11 +227,15 @@ func (r *Runner) stopEngine(name string, d *eng) {
 		ctx = d.options.stopctx
 	}
 	r.mu.Unlock()
-	r.handleError(e.Stop(ctx), true)
+	r.routeError(e.Stop(ctx), true)
 }
 
-// handleError help.
-func (r *Runner) handleError(err error, lock bool) {
+// routeError acts upon an error returned from an Engine Start or Stop methods
+// depending on Runner state. If it is an error returned frm an engine Start
+// method it puts the Runner in the shutdown state. If it is an error returned
+// from an Engine Stop method, it records the error to later be returned by
+// Runner Stop method.
+func (r *Runner) routeError(err error, lock bool) {
 	if lock {
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -254,19 +260,15 @@ func (r *Runner) handleError(err error, lock bool) {
 	}
 }
 
-// onEngineDone help.
+// onEngineDone processes the event of an Engine's Start method returning.
 func (r *Runner) onEngineDone(name string, d *eng, err error) {
-
 	r.mu.Lock()
-
 	if !d.running {
 		r.mu.Unlock()
 		return
 	}
-
 	r.running--
 	d.running = false
-
 	if r.cb != nil {
 		switch r.state {
 		case StateRunning, StateStoppingFail:
@@ -275,7 +277,7 @@ func (r *Runner) onEngineDone(name string, d *eng, err error) {
 			defer r.cb(name, false, err)
 		}
 	}
-
+	r.routeError(err, false)
 	if r.running == 0 {
 		switch r.state {
 		case StateStoppingFail:
@@ -290,7 +292,6 @@ func (r *Runner) onEngineDone(name string, d *eng, err error) {
 		r.mu.Unlock()
 		return
 	}
-
 	r.mu.Unlock()
 }
 
