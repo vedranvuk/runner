@@ -59,9 +59,8 @@ type Runner struct {
 
 // eng holds engine states and definitions.
 type eng struct {
-	running bool     // running marks if engine is running.
-	engine  Engine   // engine is the Engine being run.
-	options *Options // options are the engine specific options.
+	running bool   // running marks if engine is running.
+	engine  Engine // engine is the Engine being run.
 }
 
 // DoneCallback is a prototype of a callback function to be called when an
@@ -85,17 +84,6 @@ func New(donecb DoneCallback) *Runner {
 	}
 }
 
-// Options specify registration parameters for an Engine.
-// For now, only Engine specific contexts are supported.
-type Options struct {
-	// startctx is a context to pass to the Engine's Start method.
-	// If nil, startctx specified in the Start method will be used.
-	startctx context.Context
-	// stopctx is a context to pass to the Engine's Stop method.
-	// If nil, stopctx specified in the Start method will be used.
-	stopctx context.Context
-}
-
 // Register registers engine under specified name. If an error occurs it is
 // returned and the engine was not registered.
 //
@@ -105,7 +93,7 @@ type Options struct {
 //
 // Engines cannot be registered while the Runner is running and name must not
 // be empty and must be unique.
-func (r *Runner) Register(name string, engine Engine, options *Options) error {
+func (r *Runner) Register(name string, engine Engine) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -122,8 +110,7 @@ func (r *Runner) Register(name string, engine Engine, options *Options) error {
 		return ErrDuplicateName
 	}
 	p := &eng{
-		engine:  engine,
-		options: options,
+		engine: engine,
 	}
 	r.engines[name] = p
 	r.count++
@@ -146,14 +133,13 @@ func (r *Runner) Register(name string, engine Engine, options *Options) error {
 //
 // If all Engines finished successfully or return no errors before Stop was
 // called result will be nil.
-func (r *Runner) Start(startctx, stopctx context.Context) error {
+func (r *Runner) Start(ctx context.Context) error {
 	r.mu.Lock()
 	if r.state != StateIdle {
 		r.mu.Unlock()
 		return ErrRunning
 	}
-	r.startctx = startctx
-	r.stopctx = stopctx
+	r.startctx = ctx
 	r.err = nil
 	r.state = StateRunning
 	for enginename, enginedef := range r.engines {
@@ -170,7 +156,7 @@ func (r *Runner) Start(startctx, stopctx context.Context) error {
 // will be returned by Stop. Handled errors are reported via DoneCallback.
 //
 // Stopctx specified in Start is used as described in Start help.
-func (r *Runner) Stop() error {
+func (r *Runner) Stop(ctx context.Context) error {
 	r.mu.Lock()
 	if r.state != StateRunning {
 		r.mu.Unlock()
@@ -183,6 +169,7 @@ func (r *Runner) Stop() error {
 			return ErrFailing
 		}
 	}
+	r.stopctx = ctx
 	r.state = StateStoppingRequest
 	for enginename, enginedef := range r.engines {
 		if enginedef.running {
@@ -205,9 +192,6 @@ func (r *Runner) startEngine(name string, d *eng) {
 	r.running++
 	d.running = true
 	var ctx context.Context = r.startctx
-	if d.options != nil && d.options.startctx != nil {
-		ctx = d.options.startctx
-	}
 	r.mu.Unlock()
 	err := e.Start(ctx)
 	r.onEngineDone(name, d, err)
@@ -222,9 +206,9 @@ func (r *Runner) stopEngine(name string, d *eng) {
 		return
 	}
 	e := d.engine
-	var ctx context.Context = r.stopctx
-	if d.options != nil && d.options.stopctx != nil {
-		ctx = d.options.stopctx
+	var ctx context.Context
+	if r.state == StateStoppingRequest {
+		ctx = r.stopctx
 	}
 	r.mu.Unlock()
 	r.routeError(e.Stop(ctx), true)
@@ -272,9 +256,9 @@ func (r *Runner) onEngineDone(name string, d *eng, err error) {
 	if r.cb != nil {
 		switch r.state {
 		case StateRunning, StateStoppingFail:
-			defer r.cb(name, true, err)
+			r.cb(name, true, err)
 		case StateStoppingRequest, StateIdle:
-			defer r.cb(name, false, err)
+			r.cb(name, false, err)
 		}
 	}
 	r.routeError(err, false)

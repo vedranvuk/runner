@@ -37,38 +37,38 @@ func EngineCallback(name string, start bool, err error) {
 
 func TestRunnerCompletion(t *testing.T) {
 	r := New(EngineCallback)
-	r.Register("sloth 1", NewSloth("sloth 1", 5*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
-	r.Register("sloth 2", NewSloth("sloth 2", 10*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
+	r.Register("sloth 1", NewSloth("sloth 1", 5*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 2", NewSloth("sloth 2", 10*time.Millisecond, 1*time.Millisecond, nil, nil))
 	go func() {
-		if err := r.Start(nil, nil); err != nil {
+		if err := r.Start(nil); err != nil {
 			t.Fatal(err)
 		}
 	}()
 	time.Sleep(15 * time.Millisecond)
-	if err := r.Stop(); !errors.Is(err, ErrAlreadyStopped) {
+	if err := r.Stop(nil); !errors.Is(err, ErrAlreadyStopped) {
 		t.Fatal(err)
 	}
 }
 
 func TestRunnerStopRequest(t *testing.T) {
 	r := New(EngineCallback)
-	r.Register("sloth 1", NewSloth("sloth 1", 1*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
-	r.Register("sloth 2", NewSloth("sloth 2", 2*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
-	r.Register("sloth 3", NewSloth("sloth 3", 3*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
-	r.Register("sloth 4", NewSloth("sloth 4", 4*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
-	r.Register("sloth 5", NewSloth("sloth 5", 5*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
-	r.Register("sloth 6", NewSloth("sloth 6", 6*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
-	r.Register("sloth 7", NewSloth("sloth 7", 7*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
-	r.Register("sloth 8", NewSloth("sloth 8", 8*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
-	r.Register("sloth 9", NewSloth("sloth 9", 9*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
-	r.Register("sloth 10", NewSloth("sloth 10", 10*time.Millisecond, 1*time.Millisecond, nil, nil), nil)
+	r.Register("sloth 1", NewSloth("sloth 1", 1*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 2", NewSloth("sloth 2", 2*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 3", NewSloth("sloth 3", 3*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 4", NewSloth("sloth 4", 4*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 5", NewSloth("sloth 5", 5*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 6", NewSloth("sloth 6", 6*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 7", NewSloth("sloth 7", 7*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 8", NewSloth("sloth 8", 8*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 9", NewSloth("sloth 9", 9*time.Millisecond, 1*time.Millisecond, nil, nil))
+	r.Register("sloth 10", NewSloth("sloth 10", 10*time.Millisecond, 1*time.Millisecond, nil, nil))
 	go func() {
-		if err := r.Start(nil, nil); err != nil {
+		if err := r.Start(nil); err != nil {
 			t.Fatal(err)
 		}
 	}()
 	time.Sleep(5 * time.Millisecond)
-	if err := r.Stop(); err != nil {
+	if err := r.Stop(nil); err != nil {
 		t.Fatal(err)
 	}
 }
