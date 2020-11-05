@@ -228,7 +228,7 @@ func (r *Runner) stopEngine(name string, d *eng) {
 		}
 	}
 	r.mu.Unlock()
-	r.routeError(e.Stop(ctx), true)
+	r.routeError(e.Stop(ctx), true, d)
 }
 
 // routeError acts upon an error returned from an Engine Start or Stop methods
@@ -236,13 +236,20 @@ func (r *Runner) stopEngine(name string, d *eng) {
 // method it puts the Runner in the shutdown state. If it is an error returned
 // from an Engine Stop method, it records the error to later be returned by
 // Runner Stop method.
-func (r *Runner) routeError(err error, lock bool) {
-	if err == nil {
-		return
-	}
+func (r *Runner) routeError(err error, lock bool, d *eng) {
 	if lock {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+	}
+	// Discard Engines whose Stop returns before Start.
+	if d.running {
+		d.running = false
+		r.running--
+		r.updateState()
+		return
+	}
+	if err == nil {
+		return
 	}
 	switch r.state {
 	case StateRunning:
@@ -265,6 +272,7 @@ func (r *Runner) routeError(err error, lock bool) {
 // onEngineDone processes the event of an Engine's Start method returning.
 func (r *Runner) onEngineDone(name string, d *eng, err error) {
 	r.mu.Lock()
+	// Ignore discarded engines.
 	if !d.running {
 		r.mu.Unlock()
 		return
@@ -279,21 +287,8 @@ func (r *Runner) onEngineDone(name string, d *eng, err error) {
 			r.cb(name, false, err)
 		}
 	}
-	r.routeError(err, false)
-	if r.running == 0 {
-		switch r.state {
-		case StateStoppingFail:
-			r.startdone <- r.err
-		case StateRunning:
-			r.startdone <- r.err
-		case StateStoppingRequest:
-			r.startdone <- nil
-			r.stopdone <- r.err
-		}
-		r.state = StateIdle
-		r.mu.Unlock()
-		return
-	}
+	r.routeError(err, false, d)
+	r.updateState()
 	r.mu.Unlock()
 }
 
@@ -311,9 +306,33 @@ const (
 	StateStoppingRequest
 )
 
+// updateState updates the runner state.
+func (r *Runner) updateState() {
+	if r.running > 0 {
+		return
+	}
+	switch r.state {
+	case StateStoppingFail:
+		r.startdone <- r.err
+	case StateRunning:
+		r.startdone <- r.err
+	case StateStoppingRequest:
+		r.startdone <- nil
+		r.stopdone <- r.err
+	}
+	r.state = StateIdle
+}
+
 // State reports current Runner state.
 func (r *Runner) State() State {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.state
+}
+
+// RunningEngines returns the number of running engines.
+func (r *Runner) RunningEngines() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.running
 }

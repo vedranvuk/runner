@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -105,6 +106,59 @@ func TestRunnerError(t *testing.T) {
 	}()
 	time.Sleep(15 * time.Millisecond)
 	if err := r.Stop(nil); !errors.Is(err, ErrIdle) {
+		t.Fatal(err)
+	}
+}
+
+// RudeEngine is an Engine whose Stop returns before Start.
+type RudeEngine struct {
+	stop chan struct{}
+}
+
+// NewRudeEngine returns a new RudeEngine instance.
+func NewRudeEngine() *RudeEngine { return &RudeEngine{make(chan struct{})} }
+
+// Start help.
+func (re *RudeEngine) Start(ctx context.Context) error {
+	<-re.stop
+	time.Sleep(24 * time.Hour)
+	return nil
+}
+
+// Stop help.
+func (re *RudeEngine) Stop(ctx context.Context) error {
+	defer func() { re.stop <- struct{}{} }()
+	return nil
+}
+
+func TestStopReturnBeforeStart(t *testing.T) {
+	re := New(EngineCallback)
+	if err := re.Register("RudeEngine", NewRudeEngine()); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		if err := re.Start(nil); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	time.Sleep(1 * time.Millisecond)
+	if err := re.Stop(nil); err != nil {
+		t.Fatal(err)
+	}
+	if re.RunningEngines() > 0 {
+		t.Fatal("Failed to discard a rude engine.")
+	}
+}
+
+const ONE_MILLION_ITERATIONS = 1e6
+
+func Test_ONE_MILLION_ITERATIONS(t *testing.T) {
+	re := New(nil)
+	for i := 0; i < ONE_MILLION_ITERATIONS; i++ {
+		name := fmt.Sprintf("Sloth %d", i)
+		re.Register(name, NewSloth(name, time.Duration(i)*time.Nanosecond, time.Duration(i)*time.Nanosecond, nil, nil))
+	}
+	if err := re.Start(nil); err != nil {
 		t.Fatal(err)
 	}
 }
