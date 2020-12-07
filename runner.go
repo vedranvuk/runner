@@ -16,6 +16,8 @@ var (
 	ErrNilEngine = errors.New("runner: engine is nil")
 	// ErrRegisterOnRunning is returned by Register if Runner is running.
 	ErrRegisterOnRunning = errors.New("runner: cannot register engine, runner not idle")
+	// ErrNoEngines is returned when running a Runner with no defined engines.
+	ErrNoEngines = errors.New("runner: no engines defined")
 
 	// ErrIdle is returned when Stop was called and Runner was already idle.
 	ErrIdle = errors.New("runner: cannot stop, already stopped")
@@ -138,6 +140,10 @@ func (r *Runner) Register(name string, engine Engine) error {
 // called result will be nil.
 func (r *Runner) Start(ctx context.Context) error {
 	r.mu.Lock()
+	if len(r.engines) == 0 {
+		r.mu.Unlock()
+		return ErrNoEngines
+	}
 	if r.state != StateIdle {
 		r.mu.Unlock()
 		return ErrRunning

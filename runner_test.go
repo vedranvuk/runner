@@ -36,6 +36,13 @@ func EngineCallback(name string, start bool, err error) {
 	}
 }
 
+func TestEmptyRunner(t *testing.T) {
+	r := New(EngineCallback)
+	if err := r.Start(nil); err != ErrNoEngines {
+		t.Fatal("TestEmptyRunner failed.")
+	}
+}
+
 func TestRunnerCompletion(t *testing.T) {
 	r := New(EngineCallback)
 	r.Register("sloth 1", NewSloth("sloth 1", 1*time.Millisecond, 1*time.Millisecond, nil, nil))
