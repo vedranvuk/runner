@@ -9,8 +9,12 @@ import (
 	"time"
 )
 
-// Sloth is an Engine implementor that acts like it's
-// working on something for some time.
+
+// ErrNotRunning is returned by Sloth when Stop is called on stopped Sloth.
+var ErrNotRunning = errors.New("sloth: cannot stop, not running")
+
+// Sloth is an Engine implementor that acts like it's working on something
+// for some time.
 type Sloth struct {
 	mu       sync.Mutex
 	running  bool
@@ -18,31 +22,33 @@ type Sloth struct {
 	stopdone chan struct{}
 	name     string
 
-	startduration, stopduration time.Duration
-	starterror, stoperror       error
+	startduration time.Duration // duration for which start will normally run.
+	stopduration time.Duration // duration for which stop will normally take.
+	starterror, stoperror       error // errors returned by start and stop.
 }
 
 // NewSloth returns a new *Sloth instance.
-// Name is SLoth's name.
+// Name is Sloth's name.
 // StartDuration specifies how long to remain in Start. If 0, infinitely.
 // StartDuration specifies how long to remain in Stop. If 0, infinitely.
-// StartError if not nil, will be returned, prefixed by Sloth error by Start.
-// StopError if not nil, will be returned, prefixed by Sloth error by Stop.
-func NewSloth(Name string, StartDuration, StopDuration time.Duration, StartError, StopError error) *Sloth {
+// StartError if not nil, will be returned by Start.
+// StopError if not nil, will be returned by Stop.
+func NewSloth(Name string, startDuration, stopDuration time.Duration, startError, stopError error) *Sloth {
 	return &Sloth{
 		sync.Mutex{},
 		false,
 		make(chan struct{}),
 		make(chan struct{}),
 		Name,
-		StartDuration,
-		StopDuration,
-		StartError,
-		StopError,
+		startDuration,
+		stopDuration,
+		startError,
+		stopError,
 	}
 }
 
-// Start starts the sloth.
+// Start starts the Sloth. If not stopped before StartDuration returns 
+// startError else returns nil.
 func (s *Sloth) Start(ctx context.Context) error {
 	s.mu.Lock()
 	s.running = true
@@ -74,14 +80,13 @@ func (s *Sloth) Start(ctx context.Context) error {
 	}
 }
 
-var errNotRunning = errors.New("sloth: cannot stop, not running")
-
-// Stop stops the sloth.
+// Stop stops the Sloth. It waits stopDuration before returning. It always 
+// returns stopError.
 func (s *Sloth) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	if !s.running {
 		s.mu.Unlock()
-		return errNotRunning
+		return ErrNotRunning
 	}
 	s.mu.Unlock()
 	s.stopreq <- struct{}{}
@@ -92,10 +97,10 @@ func (s *Sloth) Stop(ctx context.Context) error {
 var errStartComplete = errors.New("start completed")
 var errStopComplete = errors.New("stop complete")
 
-func TestSlothCompleteStart(t *testing.T) {
+func TestSlothStartComplete(t *testing.T) {
 	sloth := NewSloth("sloth", 5*time.Millisecond, 1*time.Millisecond, errStartComplete, nil)
 	go func() {
-		err := sloth.Start(nil)
+		var err = sloth.Start(nil)
 		if !errors.Is(err, errStartComplete) {
 			t.Fatal(err)
 		}
@@ -106,13 +111,14 @@ func TestSlothCompleteStart(t *testing.T) {
 func TestSlothStopAfterStartComplete(t *testing.T) {
 	sloth := NewSloth("sloth", 3*time.Millisecond, 10*time.Millisecond, nil, nil)
 	go func() {
-		if err := sloth.Start(nil); err != nil {
+		var err error
+		if err = sloth.Start(nil); err != nil {
 			fmt.Println(err)
 		}
 	}()
 	time.Sleep(5 * time.Millisecond)
-	err := sloth.Stop(nil)
-	if !errors.Is(err, errNotRunning) {
+	var err = sloth.Stop(nil)
+	if !errors.Is(err, ErrNotRunning) {
 		t.Fatal(err)
 	}
 }
@@ -120,12 +126,13 @@ func TestSlothStopAfterStartComplete(t *testing.T) {
 func TestSlothStopStart(t *testing.T) {
 	sloth := NewSloth("sloth", 5*time.Millisecond, 2*time.Millisecond, errStartComplete, errStopComplete)
 	go func() {
-		if err := sloth.Start(nil); err != nil {
+		var err error
+		if err = sloth.Start(nil); err != nil {
 			t.Fatal(err)
 		}
 	}()
 	time.Sleep(1 * time.Millisecond)
-	err := sloth.Stop(nil)
+	var err = sloth.Stop(nil)
 	if !errors.Is(err, errStopComplete) {
 		t.Fatal(err)
 	}
